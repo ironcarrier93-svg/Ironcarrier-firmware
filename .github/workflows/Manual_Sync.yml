@@ -1,13 +1,10 @@
-name: Manual Sync with Ninja-Jr Preservation
-
+name: Manual Sync
 on:
   workflow_dispatch:
-
 permissions:
   contents: write
-
 jobs:
-  sync:
+  merge:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -15,30 +12,47 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-
       - name: Configure Git
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git config checkout.defaultRemote origin
-
       - name: Add upstream & fetch
         run: |
           git remote add upstream https://github.com/PR3Y/Bruce.git || true
           git fetch upstream
-
-      - name: Sync main branch
-        run: |
-          git checkout main
-          git merge upstream/main
-          git push origin main
-
-      - name: Sync dev branch
+      - name: Normal git merge
         run: |
           git checkout origin/dev
-          git merge upstream/dev || echo "Merge may have conflicts"
-          git checkout --ours platformio.ini
-          git checkout --ours .github/workflows/
-          git add .
-          git commit -m "Sync upstream dev, preserve Ninja-Jr changes" || echo "No changes or already committed"
+          if git merge upstream/dev -m "Merge upstream updates"; then
+            echo "Clean merge - no conflicts!"
+            git push origin HEAD:dev
+            exit 0
+          fi
+          echo "Merge has conflicts, resolving with Ninja-Jr priority..."
+      - name: Resolve conflicts
+        run: |
+          CONFLICTED=$(git diff --name-only --diff-filter=U)
+          for file in $CONFLICTED; do
+            echo "Resolving conflicts in: $file"
+            if [[ "$file" == *"jammer"* ]] || [[ "$file" == *"timeout"* ]]; then
+              echo "Ninja-Jr feature file, keeping our changes"
+              git checkout --ours "$file"
+            elif [[ "$file" == "platformio.ini" ]]; then
+              echo "Ninja-Jr version file, keeping our version"
+              git checkout --ours "$file"
+            elif [[ "$file" == *".github/workflows/"* ]]; then
+              echo "Workflow file, keeping our version"
+              git checkout --ours "$file"
+            else
+              echo "Other file, attempting automatic conflict resolution..."
+              git checkout --merge "$file" 2>/dev/null || true
+            fi
+            git add "$file" 2>/dev/null || true
+          done
+          git commit -m "Merge upstream with Ninja-Jr feature preservation"
+          echo "Merge committed with conflicts resolved"
+      - name: Push merged branch
+        run: |
           git push origin HEAD:dev
+          echo "Merge pushed to dev branch"
