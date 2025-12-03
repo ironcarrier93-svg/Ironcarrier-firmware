@@ -25,29 +25,24 @@ jobs:
 
       - name: Add upstream remote
         run: |
-          git remote add upstream https://github.com/PR3Y/Bruce.git || true
+          git remote add upstream https://github.com/PR3Y/Bruce.git 2>/dev/null || true
           git fetch upstream
 
-      - name: Sync dev branch (exclude .github/workflows)
+      - name: Sync main branch with workflow preservation
         run: |
-          git checkout dev || git checkout -b dev
-          git merge upstream/dev --no-edit || true
-          git checkout HEAD -- . ':!.github/workflows/'
-          git add -A
-          git commit -m "Sync dev from upstream (skip workflows)" || echo "No changes to commit on dev"
-          git push origin dev --force-with-lease || true
+          git checkout main
+          git merge upstream/main || echo "Merge may have conflicts"
+          git checkout --ours .github/workflows/
+          git add .
+          git commit -m "Sync upstream main, preserve workflows" || echo "No changes or already committed"
+          git push origin main
 
-      - name: Sync main branch (exclude .github/workflows)
+      - name: Sync dev branch with Ninja-Jr preservation
         run: |
-          git checkout main || git checkout -b main
-          git merge upstream/main --no-edit || true
-          git checkout HEAD -- . ':!.github/workflows/'
-          git add -A
-          git commit -m "Sync main from upstream (skip workflows)" || echo "No changes to commit on main"
-          git push origin main --force-with-lease || true
-
-      - name: Log final status
-        run: |
-          git remote -v
-          git log --oneline -5 origin/dev
-          git log --oneline -5 origin/main
+          git checkout dev
+          git merge upstream/dev || echo "Merge may have conflicts"
+          git checkout --ours platformio.ini
+          git checkout --ours .github/workflows/
+          git add .
+          git commit -m "Sync upstream dev, preserve Ninja-Jr changes" || echo "No changes or already committed"
+          git push origin dev
