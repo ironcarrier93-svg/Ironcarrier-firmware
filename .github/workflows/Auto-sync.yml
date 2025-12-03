@@ -1,0 +1,53 @@
+name: Auto Sync Bruce Branches
+
+on:
+  schedule:
+    - cron: '0 3 * * 1,3,5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-branches:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/PR3Y/Bruce.git || true
+          git fetch upstream
+
+      - name: Sync dev branch (exclude .github/workflows)
+        run: |
+          git checkout dev || git checkout -b dev
+          git merge upstream/dev --no-edit || true
+          git checkout HEAD -- . ':!.github/workflows/'
+          git add -A
+          git commit -m "Sync dev from upstream (skip workflows)" || echo "No changes to commit on dev"
+          git push origin dev --force-with-lease || true
+
+      - name: Sync main branch (exclude .github/workflows)
+        run: |
+          git checkout main || git checkout -b main
+          git merge upstream/main --no-edit || true
+          git checkout HEAD -- . ':!.github/workflows/'
+          git add -A
+          git commit -m "Sync main from upstream (skip workflows)" || echo "No changes to commit on main"
+          git push origin main --force-with-lease || true
+
+      - name: Log final status
+        run: |
+          git remote -v
+          git log --oneline -5 origin/dev
+          git log --oneline -5 origin/main

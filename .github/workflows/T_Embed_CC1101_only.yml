@@ -1,0 +1,123 @@
+name: Build T-Embed CC1101 only
+
+on: 
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: "Branch to build against (e.g., dev, main)"
+        required: true
+        default: "main"
+
+jobs:
+  compile_sketch:
+    name: Build lilygo-t-embed-cc1101
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_branch }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install requests esptool intelhex
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: Bruce-platformio-${{ hashFiles('**/platformio.ini') }}
+          restore-keys: Bruce-platformio-
+
+      - name: Install PlatformIO Core
+        run: |
+          pip install platformio
+          sed -i "s/-DBRUCE_VERSION=.*/-DBRUCE_VERSION='\"Ninja-Jr\"'/" platformio.ini
+
+      - name: Build and Generate Bruce_{ENV_NAME}.bin
+        run: |
+          # Build the firmware with PlatformIO
+          platformio run -e lilygo-t-embed-cc1101
+          
+          # Define variables
+          SOURCE_PATH=".pio/build/lilygo-t-embed-cc1101/firmware.bin"
+          TARGET_NAME="Bruce_lilygo-t-embed-cc1101.bin"
+          
+          # Handle the case where the expected firmware isn't generated
+          if [[ -f "$SOURCE_PATH" ]]; then
+            echo "Build successful. Renaming the output file..."
+            cp "$SOURCE_PATH" "$TARGET_NAME"
+          else
+            echo "Error: $SOURCE_PATH was not generated during the build process."
+            exit 1
+          fi
+
+          # Display the directory for debugging
+          ls -la .pio/build/lilygo-t-embed-cc1101
+
+      - name: Upload compiled bin
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bruce-lilygo-t-embed-cc1101
+          path: Bruce-*.bin
+          retention-days: 5
+
+  release:
+    needs: compile_sketch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Bruce-*
+          merge-multiple: true
+
+      - name: Prepare final Ninja-Jr files
+        run: |
+          mkdir -p release_bins
+          for f in Bruce-*.bin; do
+            [ -f "$f" ] || continue
+            newname=$(echo "$f" | sed 's/Bruce-\(.*\)\.bin$/Bruce_\1_Ninja-Jr.bin/')
+            cp "$f" "release_bins/$newname"
+          done
+          ls -la release_bins/
+
+      - name: Delete old betaRelease assets
+        continue-on-error: true
+        uses: actions/github-script@v6
+        with:
+          script: |
+            try {
+              const rel = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: "betaRelease"
+              });
+              for (const a of rel.data.assets) {
+                await github.rest.repos.deleteReleaseAsset({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  asset_id: a.id
+                });
+              }
+            } catch (e) {}
+
+      - name: Upload Ninja-Jr builds
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: betaRelease
+          name: betaRelease – Ninja-Jr builds
+          prerelease: true
+          fail_on_unmatched_files: false
+          files: release_bins/Bruce_*_Ninja-Jr.bin
