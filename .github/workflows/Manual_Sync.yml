@@ -1,4 +1,4 @@
-name: Manual Update
+name: Manual Sync
 on:
   workflow_dispatch:
 permissions:
@@ -21,7 +21,15 @@ jobs:
         run: |
           git remote add upstream https://github.com/PR3Y/Bruce.git || true
           git fetch upstream
-      - name: Merge with conflict handling
+      - name: Merge main branch
+        run: |
+          git checkout main
+          git merge upstream/main || true
+          git checkout --ours .github/workflows/
+          git add .
+          git commit -m "Merge upstream main, preserve workflows" || echo "No changes"
+          git push origin main
+      - name: Merge dev branch
         run: |
           git checkout origin/dev
           git merge upstream/dev -m "Merge upstream updates" || true
@@ -59,8 +67,9 @@ jobs:
           
           git commit -m "Merge upstream with Ninja-Jr feature preservation" || echo "Commit may have failed"
           
-      - name: Push if changes
+      - name: Push dev if changes
         run: |
+          git checkout origin/dev 2>/dev/null || true
           if git status --porcelain | grep -q .; then
             echo "Uncommitted changes exist"
             git add .
@@ -71,5 +80,5 @@ jobs:
             echo "No changes to push"
           else
             git push origin HEAD:dev
-            echo "Merge pushed to dev"
+            echo "Dev merge pushed"
           fi
