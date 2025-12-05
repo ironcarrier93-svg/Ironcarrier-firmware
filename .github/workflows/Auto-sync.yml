@@ -32,6 +32,7 @@ jobs:
         run: |
           set +e
           git checkout dev 2>/dev/null || git checkout -b dev
+          git fetch origin dev
           
           git merge upstream/dev --no-ff --no-edit
           
@@ -54,12 +55,13 @@ jobs:
             fi
           fi
           
-          git push origin dev
+          git push origin dev --force-with-lease
 
       - name: Sync main branch
         run: |
           set +e
           git checkout main 2>/dev/null || git checkout -b main
+          git fetch origin main
           
           git merge upstream/main --no-ff --no-edit
           
@@ -82,4 +84,4 @@ jobs:
             fi
           fi
           
-          git push origin main
+          git push origin main --force-with-lease
