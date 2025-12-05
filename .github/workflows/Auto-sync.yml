@@ -22,6 +22,7 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
+          git config checkout.defaultRemote origin  # Fix the ambiguous branch error
 
       - name: Add upstream remote
         run: |
@@ -30,16 +31,17 @@ jobs:
 
       - name: Sync dev branch
         run: |
-          git checkout dev
+          # Explicitly checkout origin/dev to avoid ambiguity
+          git checkout origin/dev -b dev
           git fetch origin dev
           
           # Merge with "ours" strategy for conflicts
           git merge -X ours upstream/dev --no-ff --no-edit 2>/dev/null || true
           
-          # Clean up any leftover merge artifacts
-          git checkout -- .github/workflows/ 2>/dev/null || true
+          # Ensure workflow files stay exactly as they are
+          git checkout origin/dev -- .github/workflows/ 2>/dev/null || true
           
-          # Check if we actually have changes
+          # Check if we actually have non-workflow changes
           if ! git diff --quiet HEAD upstream/dev -- . ':!.github/workflows/'; then
             git add -A
             git commit -m "Sync dev from upstream $(date +%Y-%m-%d) [skip ci]" || echo "No changes to commit"
@@ -50,12 +52,12 @@ jobs:
 
       - name: Sync main branch
         run: |
-          git checkout main
+          git checkout origin/main -b main
           git fetch origin main
           
           git merge -X ours upstream/main --no-ff --no-edit 2>/dev/null || true
           
-          git checkout -- .github/workflows/ 2>/dev/null || true
+          git checkout origin/main -- .github/workflows/ 2>/dev/null || true
           
           if ! git diff --quiet HEAD upstream/main -- . ':!.github/workflows/'; then
             git add -A
