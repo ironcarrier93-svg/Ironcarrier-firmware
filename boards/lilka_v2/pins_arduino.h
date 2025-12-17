@@ -124,37 +124,4 @@ static const uint8_t SCL = GROVE_SCL;
 #define I2S_DOUT_PIN 2
 #define I2S_LRCK_PIN 1
 
-// =============================================================================
-//  General-purpose/expansion GPIOs
-//  These pins are not assigned above; repurpose as needed and comment out if
-//  they conflict with selected peripherals.
-// =============================================================================
-#define EXP_GPIO_12 12
-#define EXP_GPIO_13 13
-#define EXP_GPIO_14 14
-#define EXP_GPIO_19 19
-#define EXP_GPIO_20 20
-#define EXP_GPIO_22 22
-#define EXP_GPIO_23 23
-#define EXP_GPIO_24 24
-#define EXP_GPIO_25 25
-#define EXP_GPIO_26 26
-#define EXP_GPIO_27 27
-#define EXP_GPIO_28 28
-#define EXP_GPIO_29 29
-#define EXP_GPIO_30 30
-#define EXP_GPIO_31 31
-#define EXP_GPIO_32 32
-#define EXP_GPIO_33 33
-#define EXP_GPIO_34 34
-#define EXP_GPIO_35 35
-#define EXP_GPIO_36 36
-#define EXP_GPIO_43 43
-#define EXP_GPIO_44 44
-
-// =============================================================================
-//  Misc/legacy definitions
-// =============================================================================
-#define LED -1
-
 #endif /* Pins_Arduino_h */
