@@ -37,7 +37,7 @@ public:
         byte payloadType;
         byte payload[140];
         byte end = 0xFE;
-    } NdefMessage;
+    } Ndef_Message;
 
     enum ReturnCode {
         SUCCESS = 0,
@@ -70,7 +70,7 @@ public:
 
     Uid uid;
     PrintableUID printableUID;
-    NdefMessage ndefMessage;
+    Ndef_Message ndefMessage;
     String strAllPages = "";
     int totalPages = 0;
     int dataPages = 0;
@@ -94,6 +94,7 @@ public:
     virtual int write_ndef() = 0;
     virtual int load() = 0;
     virtual int save(String filename) = 0;
+    virtual int emulate() = 0;
 
     String statusMessage(int status) const {
         switch (status) {

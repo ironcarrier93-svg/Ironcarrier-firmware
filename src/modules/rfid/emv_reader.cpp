@@ -7,11 +7,11 @@
 void EMVReader::setup() {
     _cancelled = false;
     switch (bruceConfigPins.rfidModule) {
-        case PN532_I2C_MODULE: _rfid = new PN532(PN532::CONNECTION_TYPE::I2C); break;
+        case PN532_I2C_MODULE: _rfid = new PN_532(PN_532::CONNECTION_TYPE::I2C); break;
 #ifdef M5STICK
         case PN532_I2C_SPI_MODULE: _rfid = new PN532(PN532::CONNECTION_TYPE::I2C_SPI); break;
 #endif
-        case PN532_SPI_MODULE: _rfid = new PN532(PN532::CONNECTION_TYPE::SPI); break;
+        case PN532_SPI_MODULE: _rfid = new PN_532(PN_532::CONNECTION_TYPE::SPI); break;
         default: {
             Serial.println("EMVReader: Unsupported RFID module for EMV reading.");
             return;
@@ -19,7 +19,8 @@ void EMVReader::setup() {
     }
 
     _rfid->begin();
-    nfc = &(_rfid->nfc);
+    nfc = _rfid->getNfc();
+    if (!nfc) return;
 
     displayInfo("Waiting for EMV card...");
     EMVCard card = read_emv_card();
@@ -87,8 +88,11 @@ std::vector<uint8_t> EMVReader::emv_ask_for_aid() {
             uint8_t ask_for_aid_apdu[] = {0x00, 0xA4, 0x04, 0x00, 0x0e, 0x32, 0x50, 0x41, 0x59, 0x2e,
                                           0x53, 0x59, 0x53, 0x2e, 0x44, 0x44, 0x46, 0x30, 0x31, 0x00};
             if (nfc->EMVinDataExchange(ask_for_aid_apdu, sizeof(ask_for_aid_apdu), response, &response_len)) {
+                Serial.println("\nResponse: ");
+                for (int i = 0; i < response_len; i++) { Serial.printf("0x%02X, ", response[i]); }
                 std::vector<uint8_t> response_vector(&response[0], &response[response_len]);
                 BerTlv Tlv;
+
                 Tlv.SetTlv(response_vector);
                 if (Tlv.GetValue("4F", &aid) != OK) { // Application ID
                     Serial.println("Can't get aidFeliCa");

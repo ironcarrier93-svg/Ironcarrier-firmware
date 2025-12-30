@@ -30,7 +30,9 @@ BQ27220 bq;
 
 #include "core/i2c_finder.h"
 #include "modules/rf/rf_utils.h"
-#include <Adafruit_PN532.h>
+#define PN532_I2C_ADDRESS (0x48 >> 1) ///< Default I2C address
+#include <PN532.h>
+#include <PN532_I2C.h>
 
 /***************************************************************************************
 ** Function name: _setup_gpio()
@@ -205,13 +207,13 @@ void powerOff() {
 }
 
 void powerDownNFC() {
-    Adafruit_PN532 nfc = Adafruit_PN532(17, 45);
+    PN532_I2C pn532_i2c(Wire);
+    PN532 nfc = PN532(pn532_i2c);
     bool i2c_check = check_i2c_address(PN532_I2C_ADDRESS);
-    nfc.setInterface(GROVE_SDA, GROVE_SCL);
     nfc.begin();
     uint32_t versiondata = nfc.getFirmwareVersion();
     if (i2c_check || versiondata) {
-        nfc.powerDown();
+        nfc.powerDownMode();
     } else {
         Serial.println("Can't powerDown PN532");
     }

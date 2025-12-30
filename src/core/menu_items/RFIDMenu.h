@@ -13,6 +13,8 @@ public:
     bool getTheme() { return bruceConfig.theme.rfid; }
 
 private:
+    void rc522Menu();
+    void tagOMaticMenu(bool pn532);
     void configMenu(void);
 };
 

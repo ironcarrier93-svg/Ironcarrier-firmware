@@ -24,7 +24,8 @@ public:
         WRITE_NDEF_MODE,
         ERASE_MODE,
         LOAD_MODE,
-        SAVE_MODE
+        SAVE_MODE,
+        EMULATION_MODE
     };
 
     /////////////////////////////////////////////////////////////////////////////////////
@@ -83,6 +84,7 @@ private:
     void save_file();
     void save_scan_result();
     void load_file();
+    void emulate();
 
     /////////////////////////////////////////////////////////////////////////////////////
     // NDEF

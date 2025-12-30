@@ -5,60 +5,104 @@
  * @version 0.1
  * @date 2024-08-19
  */
-
+#define PN532_I2C_ADDRESS (0x48 >> 1) ///< Default I2C address
 #include "PN532.h"
 #include "core/display.h"
 #include "core/i2c_finder.h"
 #include "core/sd_functions.h"
 #include "core/type_convertion.h"
 
+#if !defined(LITE_VERSION)
+#include "NdefMessage.h"
+#include "emulatetag.h"
+#endif
+
 #ifndef GPIO_NUM_25
 #define GPIO_NUM_25 25
 #endif
 
-PN532::PN532(CONNECTION_TYPE connection_type) {
-    _connection_type = connection_type;
-    _use_i2c = (connection_type == I2C || connection_type == I2C_SPI);
-    if (connection_type == CONNECTION_TYPE::I2C)
-        nfc.setInterface(bruceConfigPins.i2c_bus.sda, bruceConfigPins.i2c_bus.scl);
+PN_532::PN_532(CONNECTION_TYPE connection_type)
+    : _use_i2c(connection_type == I2C || connection_type == I2C_SPI), _connection_type(connection_type) {
+    if (connection_type == CONNECTION_TYPE::I2C) {
+        Wire.begin(bruceConfigPins.i2c_bus.sda, bruceConfigPins.i2c_bus.scl);
+        pn532_i2c.emplace(Wire);
+        nfc.emplace(*pn532_i2c);
+    }
 #ifdef M5STICK
-    else if (connection_type == CONNECTION_TYPE::I2C_SPI) nfc.setInterface(GPIO_NUM_26, GPIO_NUM_25);
+    else if (connection_type == CONNECTION_TYPE::I2C_SPI) {
+        Wire.begin(GPIO_NUM_26, GPIO_NUM_25);
+        pn532_i2c.emplace(Wire);
+        nfc.emplace(*pn532_i2c);
+    }
 #endif
-    else nfc.setInterface(SPI_SCK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SS_PIN);
+    else {
+        _spi.begin(SPI_SCK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, SPI_SS_PIN);
+        pn532_spi.emplace(_spi, SPI_SS_PIN);
+        nfc.emplace(*pn532_spi);
+    }
 }
 
-bool PN532::begin() {
-#ifdef M5STICK
-    if (_connection_type == CONNECTION_TYPE::I2C_SPI) {
-        Wire.begin(GPIO_NUM_26, GPIO_NUM_25);
-    } else if (_connection_type == CONNECTION_TYPE::I2C) {
-        Wire.begin(bruceConfigPins.i2c_bus.sda, bruceConfigPins.i2c_bus.scl);
-    }
-#else
-    Wire.begin(bruceConfigPins.i2c_bus.sda, bruceConfigPins.i2c_bus.scl);
+PN532 *PN_532::getNfc() { return nfc ? &(*nfc) : nullptr; }
+
+bool PN_532::begin() {
+#ifdef PN532_RF_REST
+#if PN532_RF_REST >= 0
+    pinMode(PN532_RF_REST, OUTPUT);
+    digitalWrite(PN532_RF_REST, HIGH);
+    delay(10);
+    digitalWrite(PN532_RF_REST, LOW);
+    delay(1);
+    digitalWrite(PN532_RF_REST, HIGH);
+    delay(2);
 #endif
+#endif
+    auto init_i2c_bus = [&]() {
+#ifdef M5STICK
+        if (_connection_type == CONNECTION_TYPE::I2C_SPI) {
+            Wire.begin(GPIO_NUM_26, GPIO_NUM_25);
+        } else if (_connection_type == CONNECTION_TYPE::I2C) {
+            Wire.begin(bruceConfigPins.i2c_bus.sda, bruceConfigPins.i2c_bus.scl);
+        }
+#else
+        Wire.begin(bruceConfigPins.i2c_bus.sda, bruceConfigPins.i2c_bus.scl);
+#endif
+    };
+
+    if (_use_i2c) { init_i2c_bus(); }
+
+    if (!nfc) return false;
+    nfc->begin();
+    if (_use_i2c) {
+        // Restore configured pins after PN532_I2C::begin resets Wire to defaults.
+        init_i2c_bus();
+    }
+
+    uint32_t versiondata = nfc->getFirmwareVersion();
+    Serial.println(versiondata, HEX);
+    if (versiondata) {
+        if (!nfc->SAMConfig()) Serial.println("SAMConfig failed");
+        nfc->setPassiveActivationRetries(0x01);
+    }
+
+    if (!_use_i2c) return versiondata;
 
     bool i2c_check = true;
-    if (_use_i2c) {
+    if (!versiondata) {
         Wire.beginTransmission(PN532_I2C_ADDRESS);
         int error = Wire.endTransmission();
         i2c_check = (error == 0);
     }
 
-    nfc.begin();
-
-    uint32_t versiondata = nfc.getFirmwareVersion();
-
     return i2c_check || versiondata;
 }
 
-int PN532::read(int cardBaudRate) {
+int PN_532::read(int cardBaudRate) {
     pageReadStatus = FAILURE;
 
     bool felica = false;
     if (cardBaudRate == PN532_MIFARE_ISO14443A) {
-        if (!nfc.startPassiveTargetIDDetection(cardBaudRate)) return TAG_NOT_PRESENT;
-        if (!nfc.readDetectedPassiveTargetID()) return FAILURE;
+        if (!nfc->startPassiveTargetIDDetection(cardBaudRate)) return TAG_NOT_PRESENT;
+        if (!nfc->readDetectedPassiveTargetID()) return FAILURE;
         format_data();
         set_uid();
     } else {
@@ -67,7 +111,7 @@ int PN532::read(int cardBaudRate) {
         uint8_t idm[8];
         uint8_t pmm[8];
         uint16_t sys_code_res;
-        if (!nfc.felica_Polling(sys_code, req_code, idm, pmm, &sys_code_res)) { return TAG_NOT_PRESENT; }
+        if (!nfc->felica_Polling(sys_code, req_code, idm, pmm, &sys_code_res)) { return TAG_NOT_PRESENT; }
         format_data_felica(idm, pmm, sys_code_res);
     }
 
@@ -77,11 +121,11 @@ int PN532::read(int cardBaudRate) {
     return SUCCESS;
 }
 
-int PN532::clone() {
-    if (!nfc.startPassiveTargetIDDetection()) return TAG_NOT_PRESENT;
-    if (!nfc.readDetectedPassiveTargetID()) return FAILURE;
+int PN_532::clone() {
+    if (!nfc->startPassiveTargetIDDetection()) return TAG_NOT_PRESENT;
+    if (!nfc->readDetectedPassiveTargetID()) return FAILURE;
 
-    if (nfc.targetUid.sak != uid.sak) return TAG_NOT_MATCH;
+    if (nfc->targetUid.sak != uid.sak) return TAG_NOT_MATCH;
 
     uint8_t data[16];
     byte bcc = 0;
@@ -96,58 +140,58 @@ int PN532::clone() {
     data[i++] = uid.atqaByte[0];
     byte tmp = 0;
     while (i < 16) data[i++] = 0x62 + tmp++;
-    if (nfc.mifareclassic_WriteBlock0(data)) {
+    if (nfc->mifareclassic_WriteBlock0(data)) {
         return SUCCESS;
     } else {
         // Backdoor failed, try direct write
         uint8_t num = 0;
-        while ((!nfc.startPassiveTargetIDDetection() || !nfc.readDetectedPassiveTargetID()) && num++ < 5) {
+        while ((!nfc->startPassiveTargetIDDetection() || !nfc->readDetectedPassiveTargetID()) && num++ < 5) {
             displayTextLine("hold on...");
             delay(10);
         }
-        uid.size = nfc.targetUid.size;
-        for (uint8_t i = 0; i < uid.size; i++) uid.uidByte[i] = nfc.targetUid.uidByte[i];
+        uid.size = nfc->targetUid.size;
+        for (uint8_t i = 0; i < uid.size; i++) uid.uidByte[i] = nfc->targetUid.uidByte[i];
 
-        if (authenticate_mifare_classic(0) == SUCCESS && nfc.mifareclassic_WriteDataBlock(0, data)) {
+        if (authenticate_mifare_classic(0) == SUCCESS && nfc->mifareclassic_WriteDataBlock(0, data)) {
             return SUCCESS;
         }
     }
     return FAILURE;
 }
 
-int PN532::erase() {
-    if (!nfc.startPassiveTargetIDDetection()) return TAG_NOT_PRESENT;
-    if (!nfc.readDetectedPassiveTargetID()) return FAILURE;
+int PN_532::erase() {
+    if (!nfc->startPassiveTargetIDDetection()) return TAG_NOT_PRESENT;
+    if (!nfc->readDetectedPassiveTargetID()) return FAILURE;
 
     return erase_data_blocks();
 }
 
-int PN532::write(int cardBaudRate) {
+int PN_532::write(int cardBaudRate) {
     if (cardBaudRate == PN532_MIFARE_ISO14443A) {
-        if (!nfc.startPassiveTargetIDDetection()) return TAG_NOT_PRESENT;
-        if (!nfc.readDetectedPassiveTargetID()) return FAILURE;
+        if (!nfc->startPassiveTargetIDDetection()) return TAG_NOT_PRESENT;
+        if (!nfc->readDetectedPassiveTargetID()) return FAILURE;
 
-        if (nfc.targetUid.sak != uid.sak) return TAG_NOT_MATCH;
+        if (nfc->targetUid.sak != uid.sak) return TAG_NOT_MATCH;
     } else {
         uint16_t sys_code = 0xFFFF; // Default sys code for FeliCa
         uint8_t req_code = 0x01;    // Default request code for FeliCa
         uint8_t idm[8];
         uint8_t pmm[8];
         uint16_t sys_code_res;
-        if (!nfc.felica_Polling(sys_code, req_code, idm, pmm, &sys_code_res)) { return TAG_NOT_PRESENT; }
+        if (!nfc->felica_Polling(sys_code, req_code, idm, pmm, &sys_code_res)) { return TAG_NOT_PRESENT; }
     }
 
     return write_data_blocks();
 }
 
-int PN532::write_ndef() {
-    if (!nfc.startPassiveTargetIDDetection()) return TAG_NOT_PRESENT;
-    if (!nfc.readDetectedPassiveTargetID()) return FAILURE;
+int PN_532::write_ndef() {
+    if (!nfc->startPassiveTargetIDDetection()) return TAG_NOT_PRESENT;
+    if (!nfc->readDetectedPassiveTargetID()) return FAILURE;
 
     return write_ndef_blocks();
 }
 
-int PN532::load() {
+int PN_532::load() {
     String filepath;
     File file;
     FS *fs;
@@ -183,7 +227,7 @@ int PN532::load() {
     return SUCCESS;
 }
 
-int PN532::save(String filename) {
+int PN_532::save(String filename) {
     FS *fs;
     if (!getFsStorage(fs)) return FAILURE;
 
@@ -214,10 +258,10 @@ int PN532::save(String filename) {
     return SUCCESS;
 }
 
-String PN532::get_tag_type() {
-    String tag_type = nfc.PICC_GetTypeName(nfc.targetUid.sak);
+String PN_532::get_tag_type() {
+    String tag_type = nfc->PICC_GetTypeName(nfc->targetUid.sak);
 
-    if (nfc.targetUid.sak == PICC_TYPE_MIFARE_UL) {
+    if (nfc->targetUid.sak == PICC_TYPE_MIFARE_UL) {
         switch (totalPages) {
             case 45: tag_type = "NTAG213"; break;
             case 135: tag_type = "NTAG215"; break;
@@ -229,27 +273,27 @@ String PN532::get_tag_type() {
     return tag_type;
 }
 
-void PN532::set_uid() {
-    uid.sak = nfc.targetUid.sak;
-    uid.size = nfc.targetUid.size;
+void PN_532::set_uid() {
+    uid.sak = nfc->targetUid.sak;
+    uid.size = nfc->targetUid.size;
 
-    for (byte i = 0; i < 2; i++) uid.atqaByte[i] = nfc.targetUid.atqaByte[i];
+    for (byte i = 0; i < 2; i++) uid.atqaByte[i] = nfc->targetUid.atqaByte[i];
 
-    for (byte i = 0; i < nfc.targetUid.size; i++) { uid.uidByte[i] = nfc.targetUid.uidByte[i]; }
+    for (byte i = 0; i < nfc->targetUid.size; i++) { uid.uidByte[i] = nfc->targetUid.uidByte[i]; }
 }
 
-void PN532::format_data() {
+void PN_532::format_data() {
     byte bcc = 0;
 
     printableUID.picc_type = get_tag_type();
 
-    printableUID.sak = nfc.targetUid.sak < 0x10 ? "0" : "";
-    printableUID.sak += String(nfc.targetUid.sak, HEX);
+    printableUID.sak = nfc->targetUid.sak < 0x10 ? "0" : "";
+    printableUID.sak += String(nfc->targetUid.sak, HEX);
     printableUID.sak.toUpperCase();
 
     // UID
-    for (byte i = 0; i < nfc.targetUid.size; i++) { bcc = bcc ^ nfc.targetUid.uidByte[i]; }
-    printableUID.uid = hexToStr(nfc.targetUid.uidByte, nfc.targetUid.size);
+    for (byte i = 0; i < nfc->targetUid.size; i++) { bcc = bcc ^ nfc->targetUid.uidByte[i]; }
+    printableUID.uid = hexToStr(nfc->targetUid.uidByte, nfc->targetUid.size);
 
     // BCC
     printableUID.bcc = bcc < 0x10 ? "0" : "";
@@ -257,10 +301,10 @@ void PN532::format_data() {
     printableUID.bcc.toUpperCase();
 
     // ATQA
-    printableUID.atqa = hexToStr(nfc.targetUid.atqaByte, 2);
+    printableUID.atqa = hexToStr(nfc->targetUid.atqaByte, 2);
 }
 
-void PN532::format_data_felica(uint8_t idm[8], uint8_t pmm[8], uint16_t sys_code) {
+void PN_532::format_data_felica(uint8_t idm[8], uint8_t pmm[8], uint16_t sys_code) {
     // Reuse uid-sak-atqa to save memory
     printableUID.picc_type = "FeliCa";
     printableUID.uid = hexToStr(idm, 8);
@@ -270,7 +314,7 @@ void PN532::format_data_felica(uint8_t idm[8], uint8_t pmm[8], uint16_t sys_code
     memcpy(uid.uidByte, idm, 8);
 }
 
-void PN532::parse_data() {
+void PN_532::parse_data() {
     String strUID = printableUID.uid;
     strUID.trim();
     strUID.replace(" ", "");
@@ -290,7 +334,7 @@ void PN532::parse_data() {
     }
 }
 
-int PN532::read_data_blocks() {
+int PN_532::read_data_blocks() {
     dataPages = 0;
     totalPages = 0;
     int readStatus = FAILURE;
@@ -317,7 +361,7 @@ int PN532::read_data_blocks() {
     return readStatus;
 }
 
-int PN532::read_mifare_classic_data_blocks() {
+int PN_532::read_mifare_classic_data_blocks() {
     byte no_of_sectors = 0;
     int sectorReadStatus = FAILURE;
 
@@ -350,7 +394,7 @@ int PN532::read_mifare_classic_data_blocks() {
     return sectorReadStatus;
 }
 
-int PN532::read_mifare_classic_data_sector(byte sector) {
+int PN_532::read_mifare_classic_data_sector(byte sector) {
     byte firstBlock;
     byte no_of_blocks;
 
@@ -375,7 +419,7 @@ int PN532::read_mifare_classic_data_sector(byte sector) {
         strPage = "";
         blockAddr = firstBlock + blockOffset;
 
-        if (!nfc.mifareclassic_ReadDataBlock(blockAddr, buffer)) return FAILURE;
+        if (!nfc->mifareclassic_ReadDataBlock(blockAddr, buffer)) return FAILURE;
 
         strPage = hexToStr(buffer, 16);
 
@@ -386,15 +430,15 @@ int PN532::read_mifare_classic_data_sector(byte sector) {
     return SUCCESS;
 }
 
-int PN532::authenticate_mifare_classic(byte block) {
+int PN_532::authenticate_mifare_classic(byte block) {
     uint8_t successA = 0;
     uint8_t successB = 0;
 
     for (auto key : keys) {
-        successA = nfc.mifareclassic_AuthenticateBlock(uid.uidByte, uid.size, block, 0, key);
+        successA = nfc->mifareclassic_AuthenticateBlock(uid.uidByte, uid.size, block, 0, key);
         if (successA) break;
 
-        if (!nfc.startPassiveTargetIDDetection() || !nfc.readDetectedPassiveTargetID()) {
+        if (!nfc->startPassiveTargetIDDetection() || !nfc->readDetectedPassiveTargetID()) {
             return TAG_NOT_PRESENT;
         }
     }
@@ -407,20 +451,20 @@ int PN532::authenticate_mifare_classic(byte block) {
                 keyA[i / 2] = strtoul(mifKey.substring(i, i + 2).c_str(), NULL, 16);
             }
 
-            successA = nfc.mifareclassic_AuthenticateBlock(uid.uidByte, uid.size, block, 0, keyA);
+            successA = nfc->mifareclassic_AuthenticateBlock(uid.uidByte, uid.size, block, 0, keyA);
             if (successA) break;
 
-            if (!nfc.startPassiveTargetIDDetection() || !nfc.readDetectedPassiveTargetID()) {
+            if (!nfc->startPassiveTargetIDDetection() || !nfc->readDetectedPassiveTargetID()) {
                 return TAG_NOT_PRESENT;
             }
         }
     }
 
     for (auto key : keys) {
-        successB = nfc.mifareclassic_AuthenticateBlock(uid.uidByte, uid.size, block, 1, key);
+        successB = nfc->mifareclassic_AuthenticateBlock(uid.uidByte, uid.size, block, 1, key);
         if (successB) break;
 
-        if (!nfc.startPassiveTargetIDDetection() || !nfc.readDetectedPassiveTargetID()) {
+        if (!nfc->startPassiveTargetIDDetection() || !nfc->readDetectedPassiveTargetID()) {
             return TAG_NOT_PRESENT;
         }
     }
@@ -433,10 +477,10 @@ int PN532::authenticate_mifare_classic(byte block) {
                 keyB[i / 2] = strtoul(mifKey.substring(i, i + 2).c_str(), NULL, 16);
             }
 
-            successB = nfc.mifareclassic_AuthenticateBlock(uid.uidByte, uid.size, block, 1, keyB);
+            successB = nfc->mifareclassic_AuthenticateBlock(uid.uidByte, uid.size, block, 1, keyB);
             if (successB) break;
 
-            if (!nfc.startPassiveTargetIDDetection() || !nfc.readDetectedPassiveTargetID()) {
+            if (!nfc->startPassiveTargetIDDetection() || !nfc->readDetectedPassiveTargetID()) {
                 return TAG_NOT_PRESENT;
             }
         }
@@ -445,14 +489,14 @@ int PN532::authenticate_mifare_classic(byte block) {
     return (successA && successB) ? SUCCESS : TAG_AUTH_ERROR;
 }
 
-int PN532::read_mifare_ultralight_data_blocks() {
+int PN_532::read_mifare_ultralight_data_blocks() {
     uint8_t success;
     byte buffer[18];
     byte i;
     String strPage = "";
 
     uint8_t buf[4];
-    nfc.mifareultralight_ReadPage(3, buf);
+    nfc->mifareultralight_ReadPage(3, buf);
     switch (buf[2]) {
         // NTAG213
         case 0x12: totalPages = 45; break;
@@ -465,7 +509,7 @@ int PN532::read_mifare_ultralight_data_blocks() {
     }
 
     for (byte page = 0; page < totalPages; page += 4) {
-        success = nfc.ntag2xx_ReadPage(page, buffer);
+        success = nfc->ntag2xx_ReadPage(page, buffer);
         if (!success) return FAILURE;
 
         for (byte offset = 0; offset < 4; offset++) {
@@ -487,7 +531,7 @@ int PN532::read_mifare_ultralight_data_blocks() {
     return SUCCESS;
 }
 
-int PN532::read_felica_data() {
+int PN_532::read_felica_data() {
     String strPage = "";
     totalPages = 14;
 
@@ -497,7 +541,7 @@ int PN532::read_felica_data() {
         uint16_t default_service_code[1] = {
             0x000B
         }; // Default service code for reading. Should works for every card
-        int res = nfc.felica_ReadWithoutEncryption(1, default_service_code, 1, block_list, block_data);
+        int res = nfc->felica_ReadWithoutEncryption(1, default_service_code, 1, block_list, block_data);
 
         for (size_t i = 0; i < 16; i++) {
             if (res) { // If card block read successfully, copy data to string
@@ -513,7 +557,7 @@ int PN532::read_felica_data() {
     return SUCCESS;
 }
 
-int PN532::write_data_blocks() {
+int PN_532::write_data_blocks() {
     String pageLine = "";
     String strBytes = "";
     int lineBreakIndex;
@@ -562,7 +606,7 @@ int PN532::write_data_blocks() {
     return SUCCESS;
 }
 
-bool PN532::write_mifare_classic_data_block(int block, String data) {
+bool PN_532::write_mifare_classic_data_block(int block, String data) {
     data.replace(" ", "");
     byte size = data.length() / 2;
     byte buffer[size];
@@ -575,10 +619,10 @@ bool PN532::write_mifare_classic_data_block(int block, String data) {
 
     if (authenticate_mifare_classic(block) != SUCCESS) return false;
 
-    return nfc.mifareclassic_WriteDataBlock(block, buffer);
+    return nfc->mifareclassic_WriteDataBlock(block, buffer);
 }
 
-bool PN532::write_mifare_ultralight_data_block(int block, String data) {
+bool PN_532::write_mifare_ultralight_data_block(int block, String data) {
     data.replace(" ", "");
     byte size = data.length() / 2;
     byte buffer[size];
@@ -589,10 +633,10 @@ bool PN532::write_mifare_ultralight_data_block(int block, String data) {
         buffer[i / 2] = strtoul(data.substring(i, i + 2).c_str(), NULL, 16);
     }
 
-    return nfc.ntag2xx_WritePage(block, buffer);
+    return nfc->ntag2xx_WritePage(block, buffer);
 }
 
-int PN532::write_felica_data_block(int block, String data) {
+int PN_532::write_felica_data_block(int block, String data) {
     data.replace(" ", "");
     byte size = data.length() / 2;
     uint8_t block_data[1][16] = {0};
@@ -610,10 +654,10 @@ int PN532::write_felica_data_block(int block, String data) {
         0x0009
     }; // Default service code for writing. Should works for every card
 
-    return nfc.felica_WriteWithoutEncryption(1, default_service_code, block, block_list, block_data);
+    return nfc->felica_WriteWithoutEncryption(1, default_service_code, block, block_list, block_data);
 }
 
-int PN532::erase_data_blocks() {
+int PN_532::erase_data_blocks() {
     bool blockWriteSuccess;
 
     switch (uid.sak) {
@@ -645,7 +689,7 @@ int PN532::erase_data_blocks() {
     return SUCCESS;
 }
 
-int PN532::write_ndef_blocks() {
+int PN_532::write_ndef_blocks() {
     if (uid.sak != PICC_TYPE_MIFARE_UL) return TAG_NOT_MATCH;
 
     byte ndef_size = ndefMessage.messageSize + 3;
@@ -672,9 +716,64 @@ int PN532::write_ndef_blocks() {
 
     for (int i = 0; i < payload_size; i += 4) {
         int block = 4 + (i / 4);
-        success = nfc.ntag2xx_WritePage(block, ndef_payload + i);
+        success = nfc->ntag2xx_WritePage(block, ndef_payload + i);
         if (!success) return FAILURE;
     }
 
     return SUCCESS;
+}
+
+int PN_532::emulate() {
+#if !defined(LITE_VERSION)
+    uint8_t ndefBuf[120];
+    NdefMessage message;
+    int messageSize = 0;
+    uint8_t uid[3] = {0x12, 0x34, 0x56};
+
+    EmulateTag *emulateTag = nullptr;
+    if (bruceConfigPins.rfidModule == PN532_SPI_MODULE) {
+        if (pn532_spi) { emulateTag = new EmulateTag(*pn532_spi); }
+    } else if (bruceConfigPins.rfidModule == PN532_I2C_MODULE ||
+               bruceConfigPins.rfidModule == PN532_I2C_SPI_MODULE) {
+        if (pn532_i2c) { emulateTag = new EmulateTag(*pn532_i2c); }
+    }
+
+    if (!emulateTag) {
+        displayError("Emulation not supported");
+        return FAILURE;
+    }
+
+    message.addUriRecord("http://www.seeedstudio.com");
+    messageSize = message.getEncodedSize();
+    if (messageSize > static_cast<int>(sizeof(ndefBuf))) {
+        Serial.println("ndefBuf is too small");
+        delete emulateTag;
+        return FAILURE;
+    }
+    message.encode(ndefBuf);
+    emulateTag->setNdefFile(ndefBuf, messageSize);
+
+    // uid must be 3 bytes!
+    emulateTag->setUid(uid);
+
+    if (!emulateTag->init()) {
+        delete emulateTag;
+        displayError("Emulation init failed");
+        return FAILURE;
+    }
+
+    while (!EscPress) {
+        if (!emulateTag->emulate()) {
+            displayError("Emulation failed");
+            delete emulateTag;
+            return FAILURE;
+        }
+        delay(100);
+    }
+    delete emulateTag;
+    return SUCCESS;
+
+#else
+    return NOT_IMPLEMENTED;
+#endif
 }

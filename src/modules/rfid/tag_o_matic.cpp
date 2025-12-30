@@ -40,11 +40,11 @@ TagOMatic::~TagOMatic() {
 
 void TagOMatic::set_rfid_module() {
     switch (bruceConfigPins.rfidModule) {
-        case PN532_I2C_MODULE: _rfid = new PN532(PN532::CONNECTION_TYPE::I2C); break;
+        case PN532_I2C_MODULE: _rfid = new PN_532(PN_532::CONNECTION_TYPE::I2C); break;
 #ifdef M5STICK
-        case PN532_I2C_SPI_MODULE: _rfid = new PN532(PN532::CONNECTION_TYPE::I2C_SPI); break;
+        case PN532_I2C_SPI_MODULE: _rfid = new PN_532(PN_532::CONNECTION_TYPE::I2C_SPI); break;
 #endif
-        case PN532_SPI_MODULE: _rfid = new PN532(PN532::CONNECTION_TYPE::SPI); break;
+        case PN532_SPI_MODULE: _rfid = new PN_532(PN_532::CONNECTION_TYPE::SPI); break;
         case RC522_SPI_MODULE: _rfid = new RFID2(false); break;
         case M5_RFID2_MODULE:
         default: _rfid = new RFID2(); break;
@@ -83,6 +83,7 @@ void TagOMatic::loop() {
             case WRITE_NDEF_MODE: write_ndef_data(); break;
             case ERASE_MODE: erase_card(); break;
             case SAVE_MODE: save_file(); break;
+            case EMULATION_MODE: emulate(); break;
         }
     }
 }
@@ -142,6 +143,7 @@ void TagOMatic::set_state(RFID_State state) {
         case WRITE_NDEF_MODE: _ndef_created = false; break;
         case SAVE_MODE:
         case ERASE_MODE:
+        case EMULATION_MODE:
         case CUSTOM_UID_MODE: break;
     }
     delay(300);
@@ -161,6 +163,7 @@ void TagOMatic::display_banner() {
         case WRITE_MODE: printSubtitle("WRITE DATA MODE"); break;
         case WRITE_NDEF_MODE: printSubtitle("WRITE NDEF MODE"); break;
         case SAVE_MODE: printSubtitle("SAVE MODE"); break;
+        case EMULATION_MODE: printSubtitle("EMULATION MODE"); break;
     }
 
     tft.setTextSize(FP);
@@ -513,4 +516,15 @@ void TagOMatic::save_scan_result() {
 void TagOMatic::delayWithReturn(uint32_t ms) {
     auto tm = millis();
     while (millis() - tm < ms && !returnToMenu) { vTaskDelay(pdMS_TO_TICKS(50)); }
+}
+
+void TagOMatic::emulate() {
+    int output = _rfid->emulate();
+    if (output == RFIDInterface::NOT_IMPLEMENTED) {
+        displayError("Emulation not available on this module");
+    } else if (output == RFIDInterface::FAILURE) {
+        displayError("Emulation Error");
+    }
+
+    if (output != RFIDInterface::SUCCESS) set_state(READ_MODE);
 }

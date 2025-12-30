@@ -1,3 +1,6 @@
+#ifndef __PN532_BRUCE_H__
+#define __PN532_BRUCE_H__
+
 /**
  * @file PN532.h
  * @author Rennan Cockles (https://github.com/rennancockles)
@@ -5,11 +8,23 @@
  * @version 0.1
  * @date 2024-08-19
  */
-
+#ifndef NFC_INTERFACE_I2C
+#define NFC_INTERFACE_I2C
+#endif
+#ifndef NFC_INTERFACE_SPI
+#define NFC_INTERFACE_SPI
+#endif
 #include "RFIDInterface.h"
-#include <Adafruit_PN532.h>
+#include <optional>
+#include <SPI.h>
+#include <Wire.h>
 
-class PN532 : public RFIDInterface {
+#include <PN532_I2C.h>
+#include <PN532_SPI.h>
+
+#include <PN532.h>
+
+class PN_532 : public RFIDInterface {
 public:
     enum CONNECTION_TYPE { I2C = 1, I2C_SPI = 2, SPI = 3 };
     enum PICC_Type {
@@ -19,19 +34,12 @@ public:
         PICC_TYPE_MIFARE_UL = 0x00,   // MIFARE Ultralight or Ultralight C
     };
 
-// Devices such as T-Embed CC1101 uses an embedded PN532 that needs the IRQ and RST pins to work
-// If using other device that uses, set -DPN532_IRQ=pin_num and -DPN532_RF_REST=pin_num to platformio.ini
-// of this particular device, should not be used in other devices on I2C mode
-#if defined(PN532_IRQ) && defined(PN532_RF_REST)
-    Adafruit_PN532 nfc = Adafruit_PN532(PN532_IRQ, PN532_RF_REST);
-#else
-    Adafruit_PN532 nfc = Adafruit_PN532();
-#endif
-
-    /////////////////////////////////////////////////////////////////////////////////////
-    // Constructor
-    /////////////////////////////////////////////////////////////////////////////////////
-    PN532(CONNECTION_TYPE connection_type = I2C);
+    // Devices such as T-Embed CC1101 uses an embedded PN532 that needs the IRQ and RST pins to work
+    // If using other device that uses, set -DPN532_IRQ=pin_num and -DPN532_RF_REST=pin_num to platformio.ini
+    // of this particular device, should not be used in other devices on I2C mode
+    PN_532(CONNECTION_TYPE connection_type = I2C);
+    ~PN_532() = default;
+    PN532 *getNfc();
 
     /////////////////////////////////////////////////////////////////////////////////////
     // Life Cycle
@@ -48,10 +56,15 @@ public:
     int write_ndef();
     int load();
     int save(String filename);
+    int emulate();
 
 private:
     bool _use_i2c;
     CONNECTION_TYPE _connection_type;
+    SPIClass _spi;
+    std::optional<PN532_SPI> pn532_spi;
+    std::optional<PN532_I2C> pn532_i2c;
+    std::optional<PN532> nfc;
 
     /////////////////////////////////////////////////////////////////////////////////////
     // Converters
@@ -82,3 +95,5 @@ private:
 
     int write_felica_data_block(int block, String data);
 };
+
+#endif

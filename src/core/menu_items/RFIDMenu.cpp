@@ -12,54 +12,72 @@
 #include "modules/rfid/emv_reader.hpp"
 #endif
 void RFIDMenu::optionsMenu() {
-    options = {
-#if !defined(REMOVE_RFID_HW_INTERFACE)  // Remove Hardware interface menu due to lack of external GPIO
-        {"Read tag",    [=]() { TagOMatic(); }                          },
-#ifndef LITE_VERSION
-        {"Read EMV",    [=]() { EMVReader(); }                          },
-#endif
-        {"Read 125kHz", [=]() { RFID125(); }                            },
-        {"Scan tags",   [=]() { TagOMatic(TagOMatic::SCAN_MODE); }      },
-        {"Load file",   [=]() { TagOMatic(TagOMatic::LOAD_MODE); }      },
-        {"Erase data",  [=]() { TagOMatic(TagOMatic::ERASE_MODE); }     },
-        {"Write NDEF",  [=]() { TagOMatic(TagOMatic::WRITE_NDEF_MODE); }},
+    int idx = 0;
+    while (!returnToMenu) {
+        options.clear();
+#if !defined(REMOVE_RFID_HW_INTERFACE) // Remove Hardware interface menu due to lack of external GPIO
+        options.push_back({"PN532 (13.56Mhz)", [this]() { this->tagOMaticMenu(true); }});
+        options.push_back({"M5 RFID2 (13.56Mhz)", [this]() { this->tagOMaticMenu(false); }});
+        options.push_back({"RC522 (125kHz)", [this]() { this->rc522Menu(); }});
 #endif
 #ifndef LITE_VERSION
-        {"Amiibolink",  [=]() { Amiibo(); }                             },
+        options.push_back({"Amiibolink", [=]() { Amiibo(); }});
 #endif
-        {"Chameleon",   [=]() { Chameleon(); }                          },
+        options.push_back({"Chameleon", [=]() { Chameleon(); }});
 #ifndef LITE_VERSION
-        {"PN532 BLE",   [=]() { Pn532ble(); }                           },
-#if !defined(REMOVE_RFID_HW_INTERFACE)  // Remove Hardware interface menu due to lack of external GPIO
-        {"PN532 UART",  [=]() { PN532KillerTools(); }                   },
+        options.push_back({"PN532 BLE", [=]() { Pn532ble(); }});
+#if !defined(REMOVE_RFID_HW_INTERFACE) // Remove Hardware interface menu due to lack of external GPIO
+        options.push_back({"PN532 UART", [=]() { PN532KillerTools(); }});
 #endif
 #endif
-        {"Config",      [this]() { configMenu(); }                      },
-    };
-    addOptionToMainMenu();
+        options.push_back({"Config", [this]() { configMenu(); }});
+        addOptionToMainMenu();
 
-    vTaskDelay(pdMS_TO_TICKS(200));
-
-    String txt = "RFID";
-    if (bruceConfigPins.rfidModule == M5_RFID2_MODULE) txt += " (RFID2)";
+        String txt = "RFID";
+        if (bruceConfigPins.rfidModule == M5_RFID2_MODULE) txt += " (RFID2)";
 #ifdef M5STICK
-    else if (bruceConfigPins.rfidModule == PN532_I2C_MODULE) txt += " (PN532-G33)";
-    else if (bruceConfigPins.rfidModule == PN532_I2C_SPI_MODULE) txt += " (PN532-G36)";
+        else if (bruceConfigPins.rfidModule == PN532_I2C_MODULE) txt += " (PN532-G33)";
+        else if (bruceConfigPins.rfidModule == PN532_I2C_SPI_MODULE) txt += " (PN532-G36)";
 #else
-    else if (bruceConfigPins.rfidModule == PN532_I2C_MODULE) txt += " (PN532-I2C)";
+        else if (bruceConfigPins.rfidModule == PN532_I2C_MODULE) txt += " (PN532-I2C)";
 #endif
-    else if (bruceConfigPins.rfidModule == PN532_SPI_MODULE) txt += " (PN532-SPI)";
-    else if (bruceConfigPins.rfidModule == RC522_SPI_MODULE) txt += " (RC522-SPI)";
-    loopOptions(options, MENU_TYPE_SUBMENU, txt.c_str());
+        else if (bruceConfigPins.rfidModule == PN532_SPI_MODULE) txt += " (PN532-SPI)";
+        else if (bruceConfigPins.rfidModule == RC522_SPI_MODULE) txt += " (RC522-SPI)";
+        idx = loopOptions(options, MENU_TYPE_SUBMENU, txt.c_str(), idx);
+    }
+}
+
+void RFIDMenu::rc522Menu() {
+    options.push_back({"Read 125kHz", [=]() { RFID125(RFID125::READ_MODE); }});
+    options.push_back({"Back", [this]() { yield(); }});
+    loopOptions(options, MENU_TYPE_SUBMENU, "RC522 125kHz");
+}
+
+void RFIDMenu::tagOMaticMenu(bool pn532) {
+    options.clear();
+    options.push_back({"Read Tag", []() { TagOMatic(TagOMatic::READ_MODE); }});
+    options.push_back({"Scan Tags", []() { TagOMatic(TagOMatic::SCAN_MODE); }});
+#ifndef LITE_VERSION
+    if (pn532) {
+        options.push_back({"Read EMV", [=]() { EMVReader(); }});
+        options.push_back({"Emulate NDEF", [=]() { TagOMatic(TagOMatic::EMULATION_MODE); }});
+    }
+#endif
+    options.push_back({"Write NDEF", []() { TagOMatic(TagOMatic::WRITE_NDEF_MODE); }});
+    options.push_back({"Load File", []() { TagOMatic(TagOMatic::LOAD_MODE); }});
+    options.push_back({"Erase Tag", []() { TagOMatic(TagOMatic::ERASE_MODE); }});
+    options.push_back({"Back", [this]() { yield(); }});
+
+    loopOptions(options, MENU_TYPE_SUBMENU, pn532 ? "PN532" : "M5 RFID2");
 }
 
 void RFIDMenu::configMenu() {
     options = {
 #if !defined(REMOVE_RFID_HW_INTERFACE)  // Remove Hardware interface menu due to lack of external GPIO
-        {"RFID Module", setRFIDModuleMenu          },
+        {"RFID Module", setRFIDModuleMenu    },
 #endif
-        {"Add MIF Key", addMifareKeyMenu           },
-        {"Back",        [this]() { optionsMenu(); }},
+        {"Add MIF Key", addMifareKeyMenu     },
+        {"Back",        [this]() { yield(); }},
     };
 
     loopOptions(options, MENU_TYPE_SUBMENU, "RFID Config");

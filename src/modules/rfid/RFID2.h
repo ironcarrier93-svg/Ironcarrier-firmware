@@ -36,6 +36,7 @@ public:
     int write_ndef();
     int load();
     int save(String filename);
+    int inline emulate() { return NOT_IMPLEMENTED; };
 
 private:
     bool _use_i2c;
