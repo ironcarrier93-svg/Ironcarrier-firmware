@@ -72,11 +72,13 @@ static const uint8_t MISO = 11;
 #define DEEPSLEEP_WAKEUP_PIN 0
 
 // ---------------- SD CARD --------------------
+// #define NO_SDCARD 1
 // #define HAS_SDCARD 0
-#define SDCARD_CS 21
-#define SDCARD_SCK SCK
-#define SDCARD_MISO MISO
-#define SDCARD_MOSI MOSI
+// #define USE_LITTLEFS 1
+#define SDCARD_CS -1
+#define SDCARD_SCK -1
+#define SDCARD_MISO -1
+#define SDCARD_MOSI -1
 
 // ----------------Onboard RGB LED --------------------
 #define LED_BUILTIN 48 // WS2812 data pin

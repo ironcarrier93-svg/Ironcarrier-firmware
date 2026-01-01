@@ -22,12 +22,12 @@ void _setup_gpio() {
     digitalWrite(TFT_DC, HIGH);
     pinMode(NRF24_SS_PIN, OUTPUT);
     pinMode(CC1101_SS_PIN, OUTPUT);
-    pinMode(SDCARD_CS, OUTPUT);
+    // pinMode(SDCARD_CS, OUTPUT);
     pinMode(TFT_CS, OUTPUT);
 
     digitalWrite(NRF24_SS_PIN, HIGH);
     digitalWrite(CC1101_SS_PIN, HIGH);
-    digitalWrite(SDCARD_CS, HIGH);
+    // digitalWrite(SDCARD_CS, HIGH);
     // digitalWrite(W5500_SS_PIN, HIGH);
     digitalWrite(TFT_CS, HIGH);
     bruceConfig.colorInverted = 0;
