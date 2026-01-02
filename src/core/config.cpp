@@ -1,5 +1,6 @@
 #include "config.h"
 #include "sd_functions.h"
+#include <globals.h>
 
 JsonDocument BruceConfig::toJson() const {
     JsonDocument jsonDoc;
@@ -381,6 +382,7 @@ void BruceConfig::fromFile(bool checkFS) {
     if (count > 0) saveFile();
 
     log_i("Using config from file");
+    jsonDoc.clear();
 }
 
 void BruceConfig::saveFile() {
@@ -401,14 +403,16 @@ void BruceConfig::saveFile() {
     else log_i("config file written successfully");
 
     file.close();
-
-    if (setupSdCard()) copyToFs(LittleFS, SD, filepath, false);
+    jsonDoc.clear();
+    // don't try to mount SD Card if not previously mounted
+    if (sdcardMounted) copyToFs(LittleFS, SD, filepath, false);
 }
 
 void BruceConfig::factoryReset() {
     FS *fs = &LittleFS;
     fs->rename(String(filepath), "/bak." + String(filepath).substring(1));
-    if (setupSdCard()) SD.rename(String(filepath), "/bak." + String(filepath).substring(1));
+    // don't try to mount SD Card if not previously mounted
+    if (sdcardMounted) SD.rename(String(filepath), "/bak." + String(filepath).substring(1));
     ESP.restart();
 }
 
